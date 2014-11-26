@@ -10,6 +10,15 @@
  *    Bryan Grohman
  *******************************************************************************/ 
 
+ /* sasha_ch
+ + random gradient focus
+ * get options.naColor if [node.color] is not found 
+ + options.gradientContrast 
+ + options.squarifyType: 0 = normal, 1 = parquet laying 
+ + [node.size] and [node.color] may be a digit 
+ + size values may be not normalized
+ */
+ 
 //
 // Treemap utilities
 //
@@ -206,7 +215,9 @@ TreemapUtils.darkerColor = function(color, ratio) {
 };
 
 TreemapUtils.rgb2hex = function(rgb) {
-    var str = "#"+((rgb[2]|(rgb[1]<<8)|(rgb[0]<<16)).toString(16).lpad("0",6));
+	if(typeof rgb == 'undefined' || rgb == '')	return this.options.naColor;
+
+	var str = "#"+((rgb[2]|(rgb[1]<<8)|(rgb[0]<<16)).toString(16).lpad("0",6));
     return str;
 };
 
@@ -238,8 +249,9 @@ TreemapUtils.hex2rgb = function(color) {
 // Includes tips and tricks from:
 // http://ejohn.org/blog/fast-javascript-maxmin/#postcomment
 //
-TreemapUtils.squarify = function(rect,vals) {
-
+TreemapUtils.squarify = function(rect,vals,depth) {
+	var that = this;
+	
     // "We assume a datatype Rectangle that contains the layout during the computation and
     // is global to the procedure squarify. It supports a function width() that gives the length of
     // the shortest side of the remaining subrectangle in which the current row is placed and a
@@ -303,8 +315,15 @@ TreemapUtils.squarify = function(rect,vals) {
             rowHeight,
             i,
             w;
-
-        if (subrect.getW() < subrect.getH()) {
+		
+		var cond;			//условие для следующего if-а	
+		if(that.options.squarifyType == 0){
+			cond = (subrect.getW() < subrect.getH()) ? 1 : 0;
+		}else{
+			cond = (depth%2 == 0) ? 1 : 0;
+		}
+		
+		if (cond) {
             rowHeight = Math.ceil(TreemapUtils.sumArray(row)/subrect.getW());
             if (y+rowHeight >= maxY) { rowHeight = maxY-y; }
             for (i = 0; i < row.length; i++) {
@@ -333,6 +352,7 @@ TreemapUtils.squarify = function(rect,vals) {
         var row = [];
         row.push(children.shift()); // descending input
         //row.push(children.pop()); // ascending input
+		
         if (children.length === 0) {
             return row;
         }
@@ -341,7 +361,7 @@ TreemapUtils.squarify = function(rect,vals) {
         do {
             newRow.push(children[0]); // descending input
             //newRow.push(children[children.length-1]); // ascending input
-            if (worst(row,w) > worst(newRow,w)){
+            if (worst(row,w) > worst(newRow,w) || that.options.squarifyType == 1){
                 row = newRow.slice();
                 children.shift(); // descending input
                 //children.pop(); // ascending input
@@ -350,6 +370,7 @@ TreemapUtils.squarify = function(rect,vals) {
                 break;
             }
         } while (children.length > 0);
+	
         return row;
     };
 
@@ -375,10 +396,18 @@ TreemapUtils.squarify = function(rect,vals) {
         }
     } else { // else compute squarified layout
         // vals come in normalized. convert them here to make them relative to containing rect
-        newVals = vals.map(function(item){return item*(rect[2]*rect[3]);}); 
         var subrect = new Subrectangle(rect.slice());
-        nrSquarify(newVals);
+		
+		var sum = TreemapUtils.sumArray(vals);			//нормализован ли массив?
+		if(Math.abs(sum - 1) > 0.00001){									//не нормализован
+			vals = vals.map(function(item){return item/this;}, sum); 		//нормализуем
+		}
+		
+		newVals = vals.map(function(item){return item*(rect[2]*rect[3]);}); 
+		
+		nrSquarify(newVals);
     }
+
     return layout;
 };
 
@@ -427,13 +456,19 @@ TreemapUtils.squarify = function(rect,vals) {
                 ctx.fillText(id,rect[0],rect[1]+10);
             },
             leafNodeBodyGradient: function(ctx,rect,rgb) {
+				function getRandom(min, max) {
+				  return Math.random() * (max - min) + min;
+				} 
+
                 var r1 = Math.min(rect[2],rect[3])*0.1;
-                var r2 = Math.max(rect[2],rect[3]);
-                var x = rect[0]+rect[2]*0.5;
-                var y = rect[1]+rect[3]*0.5;
+                var r2 = Math.max(rect[2],rect[3]);	
+                var x = rect[0]+rect[2]*getRandom(0.3,0.7);	
+                var y = rect[1]+rect[3]*getRandom(0.3,0.7);	
                 var gradient = ctx.createRadialGradient(x,y,r1,x,y,r2);
-                gradient.addColorStop(0,TreemapUtils.lighterColor(TreemapUtils.rgb2hex(rgb),0.2));
-                gradient.addColorStop(1,TreemapUtils.darkerColor(TreemapUtils.rgb2hex(rgb),0.2));
+                gradient.addColorStop(0,TreemapUtils.lighterColor(TreemapUtils.rgb2hex.call(this, rgb),this.options.gradientContrast));
+                gradient.addColorStop(1,TreemapUtils.darkerColor(TreemapUtils.rgb2hex.call(this, rgb),this.options.gradientContrast));
+				//var scaleY = 1, scaleX = 0.5;
+				//ctx.setTransform(scaleX,0,0,scaleY,0,0);		//TODO
                 return gradient;
             },
             layoutMethod: TreemapUtils.squarify,
@@ -445,6 +480,8 @@ TreemapUtils.squarify = function(rect,vals) {
             animationDurationMs: 1000, // millisec duration of option change animation
             animationEasing: {}, // defaults to linear
             postProcessCurve: {}, // defaults to none
+			squarifyType: 0,		//тип разметки поля: 0 - нормальный (оптимальный), 1 - "паркетом"
+			gradientContrast: 0.2,	//яркость градиента раскраски
             nodeData: {}
         },  
 
@@ -782,7 +819,7 @@ TreemapUtils.squarify = function(rect,vals) {
                 var i;
                 for (i = 0; i < nodes.length; i++) {
                     if ( nodes[i].color !== undefined ) {
-                        nodes[i].colorVal = nodes[i].color[that.options.colorOption];
+                        nodes[i].colorVal = ($.isArray(nodes[i].color)) ? nodes[i].color[that.options.colorOption] : nodes[i].color;
                         nodes[i].computedColor = that._getRgbColor(nodes[i].colorVal);
                     }
                     if (nodes[i].hasOwnProperty('children')) {
@@ -808,18 +845,31 @@ TreemapUtils.squarify = function(rect,vals) {
                 }
                 return a;
             }
-            function processNodes(rect,nodes) { 
+            function processNodes(rect,nodes,depth) {
                 var a = [],
                     bodyRect,
                     headerRect,
                     b,
                     i;
-
+				
+				if (typeof depth == 'number')		//счетчик глубины рекурсии	//для паркетной отрисовки
+					depth++;
+				else
+					depth = 1;
+				
                 nodes.sort(function(x,y){
-                    if (x.size[that.options.sizeOption] > y.size[that.options.sizeOption]) {
+					var xsize, ysize;
+					if($.isArray(x.size)){
+						xsize = x.size[that.options.sizeOption];
+						ysize = y.size[that.options.sizeOption];
+					}else{
+						xsize = x.size;
+						ysize = y.size;
+					}
+                    if (xsize > ysize) {
                         return -1;
                     }
-                    if (x.size[that.options.sizeOption] < y.size[that.options.sizeOption]) {
+                    if (xsize < ysize) {
                         return 1;
                     }
                     return 0;
@@ -829,11 +879,11 @@ TreemapUtils.squarify = function(rect,vals) {
                     if (that._isRootNode(nodes[i]) === true) {
                       a[i] = 1.0;
                     } else {
-                      a[i]=nodes[i].size[that.options.sizeOption];
+                      a[i] = ($.isArray(nodes[i].size)) ? nodes[i].size[that.options.sizeOption] : nodes[i].size;
                     }
                 }
                 skewVals(a);
-                b = that.options.layoutMethod([rect[0],rect[1],rect[2],rect[3]],a);
+                b = that.options.layoutMethod.call(that, [rect[0],rect[1],rect[2],rect[3]],a,depth);
                 for (i = 0; i < nodes.length; i++) {
                     if (nodes[i].geometry) {
                         nodes[i].prevGeometry = TreemapUtils.deepCopy(nodes[i].geometry);
@@ -866,7 +916,7 @@ TreemapUtils.squarify = function(rect,vals) {
                                 bodyRect[3] -= that.options.nodeBorderWidth;
                             }
                         }
-                        processNodes(bodyRect,nodes[i].children);
+                        processNodes(bodyRect,nodes[i].children,depth);
                     }
                 }
             }
